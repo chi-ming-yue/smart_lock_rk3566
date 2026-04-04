@@ -1,0 +1,9 @@
+/build
+*.o
+*.ko
+*.mod.c
+*.mod.o
+Module.symvers
+modules.order
+*.cmd
+*.swp

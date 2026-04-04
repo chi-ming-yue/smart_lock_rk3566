@@ -1,0 +1,1 @@
+/opt/atk-dlrk356x-toolchain/bin/aarch64-buildroot-linux-gnu-g++ --sysroot=/opt/atk-dlrk356x-toolchain/aarch64-buildroot-linux-gnu/sysroot  -Wall -O2 -D_GLIBCXX_USE_CXX11_ABI=0  -Wl,--allow-shlib-undefined CMakeFiles/total_keypad_test.dir/tests/keypad_test_main.cpp.o CMakeFiles/total_keypad_test.dir/drivers/kernel_bridge/hw_bridge.cpp.o -o total_keypad_test  -lpthread 
