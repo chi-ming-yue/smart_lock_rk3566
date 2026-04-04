@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "dev/dev.h"
+#include "run/wake_ctl.h"
 
 namespace {
 
@@ -72,12 +73,18 @@ int main(int argc, char* argv[])
         dev.SetSimulatedKey(sim_key);
     }
 
+    WakeCfg cfg;
+    cfg.use_window = false;
+    cfg.start_awake = true;
+    WakeCtl wake(cfg);
     for (int i = 0; i < poll_motion; ++i) {
+        wake.Tick(std::chrono::steady_clock::now(), false);
         std::cout << "motion[" << i << "]=" << (dev.PollMotion() ? 1 : 0) << std::endl;
         std::this_thread::sleep_for(std::chrono::milliseconds(poll_ms));
     }
 
     for (int i = 0; i < poll_key; ++i) {
+        wake.Tick(std::chrono::steady_clock::now(), false);
         const char key = dev.PollKey();
         std::cout << "key[" << i << "]=" << (key ? key : '0') << std::endl;
         std::this_thread::sleep_for(std::chrono::milliseconds(poll_ms));

@@ -109,6 +109,12 @@ int main(int argc, char* argv[])
             cfg.debug_frame_path = argv[++i];
         } else if (arg == "--threshold" && i + 1 < argc) {
             cfg.threshold = ParseFloat(argv[++i], cfg.threshold);
+            cfg.th_fp32 = cfg.threshold;
+            cfg.th_i8 = cfg.threshold;
+        } else if (arg == "--threshold-fp32" && i + 1 < argc) {
+            cfg.th_fp32 = ParseFloat(argv[++i], cfg.th_fp32);
+        } else if (arg == "--threshold-i8" && i + 1 < argc) {
+            cfg.th_i8 = ParseFloat(argv[++i], cfg.th_i8);
         } else if (arg == "--rotate" && i + 1 < argc) {
             cfg.camera_rotate = ParseInt(argv[++i], cfg.camera_rotate);
         }
@@ -122,7 +128,8 @@ int main(int argc, char* argv[])
     if (cfg.det_model_path.empty() || cfg.rec_model_path.empty() || cfg.db_path.empty() || images.empty()) {
         std::cerr << "usage: t_face --det-model <path> --rec-model <path> --db <path> "
                      "[--rec-model-fp32 <path>] [--rec-model-i8 <path>] [--rec-mode <fp32|i8>] "
-                     "[--image <path>] [--image-dir <dir>] [--debug-face-dir <dir>] [--threshold <f>] [--rotate <deg>]"
+                     "[--image <path>] [--image-dir <dir>] [--debug-face-dir <dir>] "
+                     "[--threshold <f>] [--threshold-fp32 <f>] [--threshold-i8 <f>] [--rotate <deg>]"
                   << std::endl;
         return 1;
     }

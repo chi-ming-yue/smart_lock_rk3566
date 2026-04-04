@@ -252,7 +252,8 @@ FrameSource::FrameSource()
       camera_width_(0),
       camera_height_(0),
       camera_pipeline_(NULL),
-      camera_sink_(NULL) {
+      camera_sink_(NULL),
+      camera_sleeping_(false) {
 }
 
 FrameSource::~FrameSource() {
@@ -312,6 +313,7 @@ bool FrameSource::open_camera(int camera_index,
     camera_mirror_ = options.mirror;
     camera_width_ = requested_width;
     camera_height_ = requested_height;
+    camera_sleeping_ = false;
     mode_ = MODE_CAMERA;
     return true;
 }
@@ -361,6 +363,12 @@ bool FrameSource::read(cv::Mat *frame, std::string *error_message) {
     }
 
     if (mode_ == MODE_CAMERA) {
+        if (camera_sleeping_) {
+            if (error_message != NULL) {
+                *error_message = "camera source is sleeping";
+            }
+            return false;
+        }
         if (camera_sink_ == NULL) {
             if (error_message != NULL) {
                 *error_message = "camera sink is not initialized";
@@ -412,6 +420,110 @@ bool FrameSource::read(cv::Mat *frame, std::string *error_message) {
     return false;
 }
 
+bool FrameSource::wake(std::string *error_message)
+{
+    if (mode_ != MODE_CAMERA) {
+        if (error_message != NULL) {
+            error_message->clear();
+        }
+        return true;
+    }
+    if (camera_pipeline_ == NULL) {
+        if (error_message != NULL) {
+            *error_message = "camera pipeline is not initialized";
+        }
+        return false;
+    }
+    if (!camera_sleeping_) {
+        if (error_message != NULL) {
+            error_message->clear();
+        }
+        return true;
+    }
+
+    const GstStateChangeReturn state_ret = gst_element_set_state(camera_pipeline_, GST_STATE_PLAYING);
+    if (state_ret == GST_STATE_CHANGE_FAILURE) {
+        if (error_message != NULL) {
+            *error_message = "failed to resume gstreamer pipeline";
+        }
+        return false;
+    }
+
+    GstState current_state = GST_STATE_NULL;
+    GstState pending_state = GST_STATE_NULL;
+    const GstStateChangeReturn wait_ret =
+        gst_element_get_state(camera_pipeline_, &current_state, &pending_state, 3 * GST_SECOND);
+    if (wait_ret == GST_STATE_CHANGE_FAILURE) {
+        if (error_message != NULL) {
+            *error_message = "failed to wake camera pipeline";
+            const std::string bus_message = PopGStreamerBusMessage(camera_pipeline_);
+            if (!bus_message.empty()) {
+                *error_message += ": " + bus_message;
+            }
+        }
+        return false;
+    }
+
+    camera_sleeping_ = false;
+    if (error_message != NULL) {
+        error_message->clear();
+    }
+    return true;
+}
+
+bool FrameSource::sleep(std::string *error_message)
+{
+    if (mode_ != MODE_CAMERA || camera_pipeline_ == NULL) {
+        if (error_message != NULL) {
+            error_message->clear();
+        }
+        return true;
+    }
+    if (camera_sleeping_) {
+        if (error_message != NULL) {
+            error_message->clear();
+        }
+        return true;
+    }
+
+    const GstStateChangeReturn state_ret = gst_element_set_state(camera_pipeline_, GST_STATE_PAUSED);
+    if (state_ret == GST_STATE_CHANGE_FAILURE) {
+        if (error_message != NULL) {
+            *error_message = "failed to pause gstreamer pipeline";
+        }
+        return false;
+    }
+
+    GstState current_state = GST_STATE_NULL;
+    GstState pending_state = GST_STATE_NULL;
+    const GstStateChangeReturn wait_ret =
+        gst_element_get_state(camera_pipeline_, &current_state, &pending_state, 3 * GST_SECOND);
+    if (wait_ret == GST_STATE_CHANGE_FAILURE) {
+        if (error_message != NULL) {
+            *error_message = "failed to sleep camera pipeline";
+            const std::string bus_message = PopGStreamerBusMessage(camera_pipeline_);
+            if (!bus_message.empty()) {
+                *error_message += ": " + bus_message;
+            }
+        }
+        return false;
+    }
+
+    camera_sleeping_ = true;
+    if (error_message != NULL) {
+        error_message->clear();
+    }
+    return true;
+}
+
+bool FrameSource::active() const
+{
+    if (mode_ == MODE_CAMERA) {
+        return camera_pipeline_ != NULL && !camera_sleeping_;
+    }
+    return mode_ != MODE_NONE;
+}
+
 void FrameSource::close() {
     capture_.release();
     if (camera_pipeline_ != NULL) {
@@ -431,5 +543,6 @@ void FrameSource::close() {
     camera_mirror_ = false;
     camera_width_ = 0;
     camera_height_ = 0;
+    camera_sleeping_ = false;
     mode_ = MODE_NONE;
 }

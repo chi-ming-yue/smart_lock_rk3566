@@ -5,7 +5,7 @@
 #include <thread>
 
 #include "dev/dev.h"
-#include "run/cam_hold.h"
+#include "run/wake_ctl.h"
 
 namespace {
 
@@ -44,19 +44,20 @@ int main(int argc, char* argv[])
         std::cout << error << std::endl;
     }
 
-    CamHold hold(awake_seconds);
+    WakeCfg cfg;
+    cfg.use_window = false;
+    cfg.start_awake = true;
+    WakeCtl wake(cfg);
     bool last_motion = false;
 
     for (int i = 0; i < polls; ++i) {
         const auto now = std::chrono::steady_clock::now();
+        wake.Tick(now, false);
         const bool motion = dev.PollMotion();
-        if (motion) {
-            hold.NoteMotion(now);
-            if (!last_motion) {
-                std::cout << "detected=1" << std::endl;
-            }
-        } else if (hold.ShouldSleep(now)) {
-            std::cout << "detected=0 sleep=1" << std::endl;
+        if (motion && !last_motion) {
+            std::cout << "detected=1" << std::endl;
+        } else if (!motion && last_motion) {
+            std::cout << "detected=0" << std::endl;
         }
         last_motion = motion;
         std::this_thread::sleep_for(std::chrono::milliseconds(poll_ms));

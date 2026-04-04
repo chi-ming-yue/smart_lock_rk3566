@@ -120,6 +120,14 @@ std::string ResolveModelPath(const FaceCfg& config, const std::string& mode)
     return config.rec_model_path;
 }
 
+float ResolveThreshold(const FaceCfg& config, const std::string& mode)
+{
+    if (mode == "i8") {
+        return config.th_i8 > 0.0f ? config.th_i8 : config.threshold;
+    }
+    return config.th_fp32 > 0.0f ? config.th_fp32 : config.threshold;
+}
+
 
 bool IsFaceBoxComplete(const FaceBox& box, const cv::Mat& frame)
 {
@@ -477,6 +485,7 @@ struct FacePipe::Impl {
     int frame_index;
     int no_face_frames;
     int rec_error_count;
+    bool source_open;
     bool source_active;
     bool use_camera_source;
     bool rec_fallback;
@@ -491,6 +500,7 @@ struct FacePipe::Impl {
           frame_index(0),
           no_face_frames(0),
           rec_error_count(0),
+          source_open(false),
           source_active(false),
           use_camera_source(false),
           rec_fallback(false),
@@ -524,6 +534,7 @@ bool FacePipe::Initialize(const FaceCfg& config, std::string* error)
     config_.rec_mode = NormalizeRecMode(config_.rec_mode);
 #ifdef TOTAL_ENABLE_RKNN_FACE_CORE
     impl_->source.close();
+    impl_->source_open = false;
     impl_->source_active = false;
     impl_->use_camera_source = config.image_path.empty() && config.video_path.empty();
     impl_->camera_options.width = config.camera_width;
@@ -610,7 +621,8 @@ bool FacePipe::Initialize(const FaceCfg& config, std::string* error)
         impl_->source_active = true;
     }
 
-    impl_->recognizer.reset(impl_->database.records(), config.threshold);
+    impl_->recognizer.reset(impl_->database.records(),
+                            ResolveThreshold(config_, impl_->current_rec_mode));
     impl_->display_available = config.display_preview && config.image_path.empty();
     impl_->warned_headless = false;
     impl_->display_sink_name.clear();
@@ -629,7 +641,7 @@ bool FacePipe::IsReady() const
     return initialized_;
 }
 
-bool FacePipe::Activate(std::string* error)
+bool FacePipe::Wake(std::string* error)
 {
 #ifdef TOTAL_ENABLE_RKNN_FACE_CORE
     if (!initialized_) {
@@ -646,7 +658,15 @@ bool FacePipe::Activate(std::string* error)
     }
 
     std::string source_error;
-    if (!impl_->source.open_camera(config_.camera_index, impl_->camera_options, &source_error)) {
+    if (!impl_->source_open) {
+        if (!impl_->source.open_camera(config_.camera_index, impl_->camera_options, &source_error)) {
+            if (error != NULL) {
+                *error = source_error;
+            }
+            return false;
+        }
+        impl_->source_open = true;
+    } else if (!impl_->source.wake(&source_error)) {
         if (error != NULL) {
             *error = source_error;
         }
@@ -666,10 +686,18 @@ bool FacePipe::Activate(std::string* error)
 #endif
 }
 
-void FacePipe::Deactivate()
+bool FacePipe::Activate(std::string* error)
+{
+    return Wake(error);
+}
+
+void FacePipe::Sleep()
 {
 #ifdef TOTAL_ENABLE_RKNN_FACE_CORE
-    impl_->source.close();
+    std::string error;
+    if (impl_->source_open && impl_->use_camera_source && !impl_->source.sleep(&error) && !error.empty()) {
+        std::cerr << "[warn] camera sleep failed: " << error << std::endl;
+    }
     StopDisplayPipeline(&impl_->display_pipeline, &impl_->display_appsrc);
     impl_->source_active = false;
     impl_->frame_index = 0;
@@ -679,6 +707,15 @@ void FacePipe::Deactivate()
     impl_->display_available = config_.display_preview && config_.image_path.empty();
     impl_->warned_headless = false;
     impl_->display_sink_name.clear();
+#endif
+}
+
+void FacePipe::Deactivate()
+{
+#ifdef TOTAL_ENABLE_RKNN_FACE_CORE
+    Sleep();
+    impl_->source.close();
+    impl_->source_open = false;
 #endif
 }
 
@@ -821,6 +858,8 @@ FaceHit FacePipe::PollRecognition()
                         impl_->rec_fallback = true;
                         impl_->rec_error_count = 0;
                         impl_->recognition_history.clear();
+                        impl_->recognizer.reset(impl_->database.records(),
+                                                ResolveThreshold(config_, impl_->current_rec_mode));
                         std::cerr << "[warn] rec fallback activated: i8" << std::endl;
                     } else {
                         std::cerr << "[warn] rec fallback init failed: "
@@ -839,7 +878,7 @@ FaceHit FacePipe::PollRecognition()
             recognition = ApplyTemporalSmoothing(raw_result,
                                                  &impl_->recognition_history,
                                                  smoothing_config,
-                                                 config_.threshold);
+                                                 ResolveThreshold(config_, impl_->current_rec_mode));
         }
         if (!config_.debug_face_dir.empty() && !recognition.is_unknown && !recognition.name.empty()) {
             mkdir(config_.debug_face_dir.c_str(), 0777);

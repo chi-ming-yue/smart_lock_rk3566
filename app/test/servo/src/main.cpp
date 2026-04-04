@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "dev/dev.h"
+#include "run/wake_ctl.h"
 
 namespace {
 
@@ -43,7 +44,12 @@ int main(int argc, char* argv[])
         std::cout << error << std::endl;
     }
 
+    WakeCfg cfg;
+    cfg.use_window = false;
+    cfg.start_awake = true;
+    WakeCtl wake(cfg);
     for (int i = 0; i < loops; ++i) {
+        wake.Tick(std::chrono::steady_clock::now(), false);
         std::cout << "servo_open[" << i << "]" << std::endl;
         dev.StartServoSweep();
         std::this_thread::sleep_for(std::chrono::milliseconds(hold_ms));

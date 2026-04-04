@@ -5,7 +5,7 @@
 
 #include "dev/dev.h"
 #include "pipe/face_pipe.h"
-#include "run/cam_hold.h"
+#include "run/wake_ctl.h"
 #include "state/state.h"
 
 namespace {
@@ -49,7 +49,10 @@ int main(int argc, char* argv[])
     Ctrl ctrl;
     Dev dev;
     FacePipe face;
-    CamHold hold(5);
+    WakeCfg cfg;
+    cfg.hold_s = 5;
+    cfg.use_window = true;
+    WakeCtl hold(cfg);
     std::string error;
     std::string password_input;
     bool run_face = false;
@@ -84,7 +87,7 @@ int main(int argc, char* argv[])
 
     PrintStatus("init", ctrl.status());
     if (dev.PollMotion() && ctrl.WakeFromMotion()) {
-        hold.StartAwakeWindow(std::chrono::steady_clock::time_point());
+        hold.Wake(std::chrono::steady_clock::time_point());
         PrintStatus("after_motion", ctrl.status());
     }
 
@@ -105,7 +108,8 @@ int main(int argc, char* argv[])
     }
 
     std::cout << "should_sleep_after_5="
-              << hold.ShouldSleep(std::chrono::steady_clock::time_point() + std::chrono::seconds(5))
+              << (hold.Tick(std::chrono::steady_clock::time_point() + std::chrono::seconds(5), false) ==
+                  WakeEvt::Slept)
               << std::endl;
     return 0;
 }

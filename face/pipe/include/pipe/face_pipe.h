@@ -22,6 +22,8 @@ struct FaceCfg {
     int camera_rotate;
     int rec_error_limit;
     float threshold;
+    float th_fp32;
+    float th_i8;
     bool camera_mirror;
 
     FaceCfg()
@@ -32,6 +34,8 @@ struct FaceCfg {
           camera_rotate(0),
           rec_error_limit(3),
           threshold(0.60f),
+          th_fp32(0.60f),
+          th_i8(0.60f),
           camera_mirror(false)
     {
         rec_mode = "fp32";
@@ -54,6 +58,8 @@ public:
 
     bool Initialize(const FaceCfg& config, std::string* error);
     bool IsReady() const;
+    bool Wake(std::string* error);
+    void Sleep();
     bool Activate(std::string* error);
     void Deactivate();
     bool IsActive() const;

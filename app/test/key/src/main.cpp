@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "dev/dev.h"
+#include "run/wake_ctl.h"
 
 namespace {
 
@@ -66,8 +67,13 @@ int main(int argc, char* argv[])
     }
 
     std::string input;
+    WakeCfg cfg;
+    cfg.use_window = false;
+    cfg.start_awake = true;
+    WakeCtl wake(cfg);
     std::cout << "t_key start: enter physical keys, default password 2580#" << std::endl;
     for (int i = 0; i < polls; ++i) {
+        wake.Tick(std::chrono::steady_clock::now(), false);
         const char key = dev.PollKey();
         if (key) {
             std::cout << "key=" << key << std::endl;

@@ -29,7 +29,10 @@ public:
     bool open_image(const std::string &path, std::string *error_message);
     bool open_video(const std::string &path, std::string *error_message);
     bool read(cv::Mat *frame, std::string *error_message);
+    bool wake(std::string *error_message);
+    bool sleep(std::string *error_message);
     void close();
+    bool active() const;
 
 private:
     enum Mode {
@@ -47,6 +50,7 @@ private:
     int camera_height_;
     GstElement *camera_pipeline_;
     GstAppSink *camera_sink_;
+    bool camera_sleeping_;
     cv::Mat image_frame_;
     cv::VideoCapture capture_;
 };

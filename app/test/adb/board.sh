@@ -12,6 +12,8 @@ REC_MODEL_FP32="${REC_MODEL_FP32:-${REMOTE_DIR}/model/rec_fp32.rknn}"
 REC_MODEL_I8="${REC_MODEL_I8:-${REMOTE_DIR}/model/rec_i8.rknn}"
 DB_PATH="${DB_PATH:-${REMOTE_DIR}/db/face.db}"
 DEBUG_DIR="${DEBUG_DIR:-${REMOTE_DIR}/debug}"
+THRESHOLD_FP32="${THRESHOLD_FP32:-0.58}"
+THRESHOLD_I8="${THRESHOLD_I8:-0.50}"
 
 run_adb() {
     "${ADB}" "$@"
@@ -60,7 +62,7 @@ auto_tests() {
 }
 
 sensor_test() {
-    run_adb shell "${REMOTE_DIR}/t_sensor --polls 200 --poll-ms 100 --awake-seconds 5"
+    run_adb shell "${REMOTE_DIR}/t_sensor --polls 200 --poll-ms 100"
 }
 
 key_test() {
@@ -72,7 +74,11 @@ ctl_keypad() {
 }
 
 ctl_face() {
-    run_adb shell "${REMOTE_DIR}/ctl --loop --face-match-required --threshold 0.50 --camera 0 --camera-width 1280 --camera-height 720 --camera-rotate 180 --det-model ${DET_MODEL} --rec-model ${REC_MODEL} --rec-model-fp32 ${REC_MODEL_FP32} --rec-model-i8 ${REC_MODEL_I8} --rec-mode ${REC_MODE} --db ${DB_PATH} --debug-face-dir ${DEBUG_DIR}"
+    run_adb shell "${REMOTE_DIR}/ctl --loop --face-match-required --camera 0 --camera-width 1280 --camera-height 720 --camera-rotate 180 --det-model ${DET_MODEL} --rec-model ${REC_MODEL} --rec-model-fp32 ${REC_MODEL_FP32} --rec-model-i8 ${REC_MODEL_I8} --rec-mode ${REC_MODE} --threshold-fp32 ${THRESHOLD_FP32} --threshold-i8 ${THRESHOLD_I8} --db ${DB_PATH} --debug-face-dir ${DEBUG_DIR}"
+}
+
+ctl_face_resume() {
+    run_adb shell "${REMOTE_DIR}/ctl --face-only --loop --iterations 140 --poll-ms 100 --wake-at 70 --camera 0 --camera-width 1280 --camera-height 720 --camera-rotate 180 --det-model ${DET_MODEL} --rec-model ${REC_MODEL} --rec-model-fp32 ${REC_MODEL_FP32} --rec-model-i8 ${REC_MODEL_I8} --rec-mode ${REC_MODE} --threshold-fp32 ${THRESHOLD_FP32} --threshold-i8 ${THRESHOLD_I8} --db ${DB_PATH} --debug-face-dir ${DEBUG_DIR}"
 }
 
 usage() {
@@ -86,6 +92,7 @@ cmd:
   key         run keypad polling test
   ctl-keypad  run controller in keypad-only mode
   ctl-face    run controller in face-match-required mode
+  ctl-face-resume  run same-process camera sleep/wake resume test
 EOF
 }
 
@@ -96,5 +103,6 @@ case "${1:-}" in
     key) key_test ;;
     ctl-keypad) ctl_keypad ;;
     ctl-face) ctl_face ;;
+    ctl-face-resume) ctl_face_resume ;;
     *) usage; exit 1 ;;
 esac

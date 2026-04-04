@@ -11,6 +11,8 @@ REC_MODEL_I8="${REC_MODEL_I8:-${ROOT_DIR}/res/model/rec_i8.rknn}"
 DB_PATH="${DB_PATH:-${ROOT_DIR}/res/db/face.db}"
 ROTATE="${ROTATE:-0}"
 THRESHOLD="${THRESHOLD:-0.50}"
+THRESHOLD_FP32="${THRESHOLD_FP32:-${THRESHOLD}}"
+THRESHOLD_I8="${THRESHOLD_I8:-${THRESHOLD}}"
 
 BIN="${ROOT_DIR}/build/bin/t_face"
 IMG0="${IMG0:-${ROOT_DIR}/res/face/zw}"
@@ -32,7 +34,8 @@ echo "[face_smoke] image dir: ${IMG0}"
   --rec-mode "${REC_MODE}" \
   --db "${DB_PATH}" \
   --image-dir "${IMG0}" \
-  --threshold "${THRESHOLD}" \
+  --threshold-fp32 "${THRESHOLD_FP32}" \
+  --threshold-i8 "${THRESHOLD_I8}" \
   --rotate "${ROTATE}"
 
 echo "[face_smoke] image dir: ${IMG1}"
@@ -44,5 +47,6 @@ echo "[face_smoke] image dir: ${IMG1}"
   --rec-mode "${REC_MODE}" \
   --db "${DB_PATH}" \
   --image-dir "${IMG1}" \
-  --threshold "${THRESHOLD}" \
+  --threshold-fp32 "${THRESHOLD_FP32}" \
+  --threshold-i8 "${THRESHOLD_I8}" \
   --rotate "${ROTATE}"

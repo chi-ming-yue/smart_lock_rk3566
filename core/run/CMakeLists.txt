@@ -1,5 +1,6 @@
 add_library(run STATIC
     src/cam_hold.cpp
+    src/wake_ctl.cpp
 )
 
 target_include_directories(run

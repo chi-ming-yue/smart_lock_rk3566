@@ -195,9 +195,23 @@ find res -maxdepth 3 -type f | sort
   --rec-model-fp32 res/model/rec_fp32.rknn \
   --rec-model-i8 res/model/rec_i8.rknn \
   --rec-mode fp32 \
+  --threshold-fp32 0.58 \
+  --threshold-i8 0.50 \
   --db res/db/face.db \
   --image-dir res/face/zw
 ```
+
+识别阈值按模型拆分：
+
+- `--threshold-fp32`：`rec_fp32.rknn` 使用
+- `--threshold-i8`：`rec_i8.rknn` 使用
+- `--threshold`：兼容入口，同时覆盖两者
+
+运行时相机策略统一为“唤醒/休眠”：
+
+- 首次唤醒时打开相机
+- 5 秒窗口到期时只休眠采集管线，不销毁资源
+- 下次唤醒时从休眠恢复，不重新构建整条相机管线
 
 ## 5. 板端部署
 
@@ -259,6 +273,7 @@ app/test/adb/board.sh auto
 - `t_dev`
 - `t_oled`
 - `t_servo`
+- 默认资源为 `det=i8 + rec=fp32`
 
 ### 第二步：人工物理交互测试
 
@@ -268,6 +283,8 @@ app/test/adb/board.sh auto
 ADB=${ADB:-adb}
 app/test/adb/board.sh sensor
 ```
+
+传感器测试现在只验证“有人/无人”信号边沿，不再把 5 秒窗口策略混入传感器程序。5 秒窗口只用于摄像头生命周期。
 
 #### 按键
 
@@ -301,6 +318,20 @@ REC_MODE=i8 app/test/adb/board.sh deploy
 REC_MODE=i8 app/test/adb/board.sh ctl-face
 ```
 
+#### 同进程相机休眠恢复
+
+```bash
+ADB=${ADB:-adb}
+app/test/adb/board.sh ctl-face-resume
+```
+
+该测试会在同一个 `ctl` 进程中完成：
+
+1. 首次唤醒相机
+2. 5 秒后进入休眠
+3. 再注入一次唤醒信号
+4. 验证相机直接恢复取帧，而不是重新 open
+
 ## 7. 板端测试程序说明
 
 - `t_dev`
@@ -310,7 +341,7 @@ REC_MODE=i8 app/test/adb/board.sh ctl-face
 - `t_servo`
   - 测舵机开锁和回位
 - `t_sensor`
-  - 测传感器检测和 5 秒保持策略
+  - 测传感器检测边沿
 - `t_key`
   - 测按键扫描、密码、改密
 - `ctl`
