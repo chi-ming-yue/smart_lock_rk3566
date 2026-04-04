@@ -1,74 +1,44 @@
 # smart_lock_rk3566
 
-RK3566 smart-lock baseline extracted from the working `week3/`, `total/`, and `rk3566_face_rec/` implementations.
+RK3566 智能门锁重构仓库。当前目标是先验证现有功能，再在短命名模块树下持续重构。
 
-## Layout
+## Tree
 
-- `apps/controller/`: top-level controller and state machine
-- `drivers/kernel_bridge/`: user-space bridge to `/dev/test`
-- `drivers/week3_kernel/`: kernel module and board-side test tools
-- `modules/camera_runtime/`: camera awake/sleep lifecycle with 5-second hold policy
-- `modules/inference_pipeline/`: face detection and recognition bridge
-- `third_party/rk3566_face_rec/src/`: imported RKNN/OpenCV inference sources
-- `tests/`: user-space keypad test app
-- `docs/`: plans and progress notes
+- `app/ctl`: 总控程序
+- `app/keyt`: 用户态按键测试
+- `core/state`: 状态机与状态类型
+- `core/run`: 5 秒保持策略
+- `hal/dev`: `/dev/test` 用户态桥接
+- `face/pipe`: 人脸检测/识别流水线桥
+- `drv/mydev`: 内核模块与板级测试
+- `third/rknn_face`: RKNN/OpenCV 相关源码
+- `docs`: 树结构、验证矩阵、重构说明
 
-## Current Behavior
-
-- Motion sensor wake does not immediately sleep the camera pipeline.
-- Each detected motion event extends the awake window by 5 seconds.
-- Only after 5 continuous seconds without a new motion signal does the controller return to idle.
-- Password unlock and face unlock share the same unlock execution path.
+详见 [docs/tree.md](/home/chiming/sd3/smart_lock_rk3566/docs/tree.md)。
 
 ## Build
 
-### Controller
-
 ```bash
-cmake -S . -B build-board-key -DCMAKE_TOOLCHAIN_FILE=cmake/rk3566_toolchain.cmake
-cmake --build build-board-key -j
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/rk3566.cmake
+cmake --build build -j
 ```
 
-Main artifacts:
+产物：
 
-- `build-board-key/total_controller`
-- `build-board-key/total_keypad_test`
+- `build/bin/ctl`
+- `build/bin/keyt`
+- `build/kmod/mydev.ko`
+- `build/kmod/key_test`
+- `build/kmod/key_debug_test`
+- `build/kmod/key_once`
+- `build/kmod/sensor_test`
 
-### Kernel Module And Board Tests
+## Run
 
-```bash
-make -C drivers/week3_kernel
-```
-
-Main artifacts:
-
-- `drivers/week3_kernel/build/mydev.ko`
-- `drivers/week3_kernel/build/key_test`
-- `drivers/week3_kernel/build/key_debug_test`
-- `drivers/week3_kernel/build/key_once`
-- `drivers/week3_kernel/build/sensor_test`
-
-## Deploy
+总控：
 
 ```bash
-adb push drivers/week3_kernel/build/mydev.ko /userdata/mydev.ko
-adb push build-board-key/total_controller /userdata/total_controller
-adb push drivers/week3_kernel/build/sensor_test /userdata/sensor_test
-```
-
-Board-side:
-
-```bash
-rmmod mydev
-insmod /userdata/mydev.ko
-```
-
-## Controller Run Examples
-
-Full controller:
-
-```bash
-./total_controller \
+./build/bin/ctl \
   --loop \
   --threshold 0.50 \
   --camera 0 \
@@ -80,10 +50,10 @@ Full controller:
   --db /userdata/face_db/face_recognition_rknn.db
 ```
 
-Require identity match before unlock:
+严格身份匹配：
 
 ```bash
-./total_controller \
+./build/bin/ctl \
   --loop \
   --face-match-required \
   --threshold 0.50 \
@@ -97,14 +67,8 @@ Require identity match before unlock:
   --debug-face-dir /userdata/face_debug
 ```
 
-Sensor-only test:
-
-```bash
-./sensor_test 100
-```
-
 ## Notes
 
-- The imported kernel module keeps the current working board behavior, including OLED password/servo status updates and servo auto-return.
-- `drivers/kernel_bridge/hw_bridge.cpp` reopens `/dev/test` for motion polling to avoid `lseek` on a character device.
-- The 5-second motion hold policy is implemented in `modules/camera_runtime/`.
+- 传感器唤醒采用 5 秒保持策略；5 秒内再次检测到人则重新计时。
+- `drv/mydev` 继续使用 Kbuild/Makefile，顶层 CMake 只做包装调用。
+- 现有功能验证项见 [docs/verify.md](/home/chiming/sd3/smart_lock_rk3566/docs/verify.md)。
