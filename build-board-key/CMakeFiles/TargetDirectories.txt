@@ -1,4 +1,0 @@
-/home/chiming/sd3/smart_lock_rk3566/build-board-key/CMakeFiles/total_controller.dir
-/home/chiming/sd3/smart_lock_rk3566/build-board-key/CMakeFiles/total_keypad_test.dir
-/home/chiming/sd3/smart_lock_rk3566/build-board-key/CMakeFiles/edit_cache.dir
-/home/chiming/sd3/smart_lock_rk3566/build-board-key/CMakeFiles/rebuild_cache.dir
