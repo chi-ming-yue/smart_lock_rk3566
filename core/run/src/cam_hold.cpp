@@ -12,15 +12,22 @@ void CamHold::SetAwakeTimeoutSeconds(int awake_timeout_seconds)
     awake_timeout_ = std::chrono::seconds(awake_timeout_seconds > 0 ? awake_timeout_seconds : 5);
 }
 
-void CamHold::StartAwakeWindow(std::chrono::steady_clock::time_point now)
+bool CamHold::Wake(std::chrono::steady_clock::time_point now)
 {
+    const bool started = !awake_;
     awake_ = true;
     deadline_ = now + awake_timeout_;
+    return started;
+}
+
+void CamHold::StartAwakeWindow(std::chrono::steady_clock::time_point now)
+{
+    Wake(now);
 }
 
 void CamHold::NoteMotion(std::chrono::steady_clock::time_point now)
 {
-    StartAwakeWindow(now);
+    Wake(now);
 }
 
 bool CamHold::ShouldSleep(std::chrono::steady_clock::time_point now) const

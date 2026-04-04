@@ -30,6 +30,11 @@ float ParsePositiveFloat(const std::string& value, float fallback)
     }
 }
 
+std::string ParseRecMode(const std::string& value)
+{
+    return value == "i8" ? "i8" : "fp32";
+}
+
 void PrintStatus(const Status& status)
 {
     std::cout << "state=" << ToString(status.state)
@@ -97,6 +102,7 @@ int main(int argc, char* argv[])
     bool keypad_only = false;
     bool face_only = false;
     bool face_match_required = false;
+    bool face_wake_pending = false;
     CamHold camera_runtime(awake_timeout_seconds);
 
     std::cout << "total controller booted" << std::endl;
@@ -125,6 +131,14 @@ int main(int argc, char* argv[])
             face_config.det_model_path = argv[++i];
         } else if (arg == "--rec-model" && i + 1 < argc) {
             face_config.rec_model_path = argv[++i];
+        } else if (arg == "--rec-model-fp32" && i + 1 < argc) {
+            face_config.rec_model_fp32_path = argv[++i];
+        } else if (arg == "--rec-model-i8" && i + 1 < argc) {
+            face_config.rec_model_i8_path = argv[++i];
+        } else if (arg == "--rec-mode" && i + 1 < argc) {
+            face_config.rec_mode = ParseRecMode(argv[++i]);
+        } else if (arg == "--rec-error-limit" && i + 1 < argc) {
+            face_config.rec_error_limit = ParsePositiveInt(argv[++i], face_config.rec_error_limit);
         } else if (arg == "--db" && i + 1 < argc) {
             face_config.db_path = argv[++i];
         } else if (arg == "--image" && i + 1 < argc) {
@@ -165,6 +179,10 @@ int main(int argc, char* argv[])
         }
     }
 
+    if (face_only && (face_config.threshold <= 0.0f || face_config.threshold == 0.60f)) {
+        face_config.threshold = 0.58f;
+    }
+
     if (!hardware.Initialize(&error)) {
         std::cerr << "hardware init failed: " << error << std::endl;
         return 1;
@@ -178,13 +196,11 @@ int main(int argc, char* argv[])
         std::cout << "keypad-only mode enabled" << std::endl;
     }
     if (face_only) {
-        if (face_config.threshold <= 0.0f || face_config.threshold == 0.60f) {
-            face_config.threshold = 0.58f;
-        }
-        controller.WakeFromMotion();
+        face_wake_pending = true;
         std::cout << "face-only mode enabled"
                   << " camera_rotate=" << face_config.camera_rotate
                   << " threshold=" << face_config.threshold
+                  << " rec_mode=" << face_config.rec_mode
                   << std::endl;
     }
 
@@ -202,18 +218,48 @@ int main(int argc, char* argv[])
               << " iterations=" << max_iterations
               << " keypad_only=" << (keypad_only ? "true" : "false")
               << " face_match_required=" << (face_match_required ? "true" : "false")
+              << " rec_mode=" << face_config.rec_mode
               << std::endl;
 
     auto unlock_deadline = std::chrono::steady_clock::time_point::min();
     Status last_status = controller.status();
-    if (face_only && controller.WakeFromMotion()) {
-        camera_runtime.StartAwakeWindow(std::chrono::steady_clock::now());
-    }
     PrintStatus(last_status);
 
     for (int iteration = 0; iteration < max_iterations; ++iteration) {
         const auto now = std::chrono::steady_clock::now();
         const bool motion_detected = hardware.PollMotion();
+        bool wake_started = false;
+
+        if (!keypad_only && face_wake_pending) {
+            wake_started = camera_runtime.Wake(now);
+            face_wake_pending = false;
+            password_input.clear();
+            controller.WakeFromMotion();
+            std::cout << "face-only wake -> start face detect" << std::endl;
+        }
+
+        if (!keypad_only && !face_only && motion_detected) {
+            wake_started = camera_runtime.Wake(now) || wake_started;
+            if (controller.WakeFromMotion()) {
+                password_input.clear();
+                std::cout << "motion wake -> start face detect" << std::endl;
+            }
+        }
+
+        if (!keypad_only && wake_started) {
+            if (!face.Activate(&error)) {
+                std::cerr << "camera activate failed: " << error << std::endl;
+                camera_runtime.Reset();
+                controller.ResetToIdle();
+            }
+        }
+
+        if (!keypad_only &&
+            controller.status().state == SystemState::Idle &&
+            camera_runtime.IsAwake()) {
+            controller.WakeFromMotion();
+        }
+
         const Status current = controller.status();
 
         if (current.state == SystemState::Unlocked) {
@@ -230,27 +276,21 @@ int main(int argc, char* argv[])
                 unlock_deadline = now + std::chrono::seconds(unlock_hold_seconds);
             }
 
-            const Status after_password = controller.status();
-            if (after_password.state == SystemState::Idle && motion_detected && !keypad_only) {
-                if (controller.WakeFromMotion()) {
-                    password_input.clear();
-                    std::cout << "motion wake -> start face detect" << std::endl;
-                }
-                camera_runtime.NoteMotion(now);
-            }
-
-            if (controller.status().state == SystemState::Awake && !keypad_only) {
-                if (motion_detected || face_only) {
-                    camera_runtime.NoteMotion(now);
-                }
+            if (controller.status().state == SystemState::Awake &&
+                !keypad_only &&
+                camera_runtime.IsAwake()) {
                 const FaceHit result = face.PollRecognition();
                 if (result.matched || (!face_match_required && result.detected)) {
                     if (result.matched) {
                         std::cout << "face matched: " << result.name
-                                  << " similarity=" << result.similarity << std::endl;
+                                  << " similarity=" << result.similarity
+                                  << " rec_mode=" << result.rec_mode
+                                  << std::endl;
                         hardware.SetOledFaceResult(result.name, result.similarity);
                     } else {
-                        std::cout << "face detected, unlock without recognition match" << std::endl;
+                        std::cout << "face detected, unlock without recognition match"
+                                  << " rec_mode=" << result.rec_mode
+                                  << std::endl;
                         hardware.SetOledFaceResult("detected", 0.0f);
                     }
                     if (controller.UnlockFromFace()) {
@@ -268,11 +308,13 @@ int main(int argc, char* argv[])
                 }
             }
 
-            if (controller.status().state == SystemState::Awake &&
+            if (!keypad_only &&
                 camera_runtime.ShouldSleep(now)) {
                 password_input.clear();
+                face.Deactivate();
                 controller.ResetToIdle();
                 camera_runtime.Reset();
+                std::cout << "camera sleep after awake window" << std::endl;
             }
         }
 

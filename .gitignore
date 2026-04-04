@@ -1,4 +1,5 @@
 build/
+out/
 build-*/
 **/build/
 **/CMakeFiles/
@@ -16,6 +17,8 @@ Module.symvers
 modules.order
 *.cmd
 *.swp
+__pycache__/
+*.pyc
 drivers/week3_kernel/key_test
 drivers/week3_kernel/key_once
 drivers/week3_kernel/key_debug_test

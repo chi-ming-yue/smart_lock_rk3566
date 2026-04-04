@@ -5,50 +5,44 @@ smart_lock_rk3566/
 ├── CMakeLists.txt
 ├── README.md
 ├── cmake/
-│   └── rk3566.cmake
 ├── docs/
-│   ├── tree.md
-│   ├── verify.md
+│   ├── adb.md
 │   ├── refactor.md
-│   └── progress/
+│   ├── test_order.md
+│   ├── tree.md
+│   └── verify.md
+├── res/
+│   ├── README.md
+│   ├── db/
+│   ├── face/
+│   ├── model/
+│   └── sql/
+├── scripts/
+│   ├── init_res.sh
+│   └── mk_db.py
 ├── app/
 │   ├── ctl/
-│   │   ├── CMakeLists.txt
-│   │   └── src/main.cpp
-│   └── keyt/
-│       ├── CMakeLists.txt
-│       └── src/main.cpp
+│   └── test/
+│       ├── adb/
+│       ├── dev/
+│       ├── face/
+│       ├── flow/
+│       ├── host/
+│       ├── key/
+│       ├── oled/
+│       ├── run/
+│       ├── sensor/
+│       ├── servo/
+│       └── state/
 ├── core/
-│   ├── state/
-│   │   ├── CMakeLists.txt
-│   │   ├── include/state/
-│   │   └── src/
-│   └── run/
-│       ├── CMakeLists.txt
-│       ├── include/run/
-│       └── src/
+│   ├── run/
+│   └── state/
 ├── hal/
 │   └── dev/
-│       ├── CMakeLists.txt
-│       ├── include/dev/
-│       └── src/
 ├── face/
 │   └── pipe/
-│       ├── CMakeLists.txt
-│       ├── include/pipe/
-│       └── src/
 ├── drv/
 │   └── mydev/
-│       ├── CMakeLists.txt
-│       ├── Makefile
-│       ├── include/mydev/
-│       ├── src/
-│       └── test/
-├── third/
-│   └── rknn_face/
-│       ├── CMakeLists.txt
-│       └── src/
-└── test/
-    ├── host/
-    └── board/
+└── third/
+    └── rknn_face/
 ```

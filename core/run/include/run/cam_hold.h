@@ -8,6 +8,7 @@ public:
     explicit CamHold(int awake_timeout_seconds);
 
     void SetAwakeTimeoutSeconds(int awake_timeout_seconds);
+    bool Wake(std::chrono::steady_clock::time_point now);
     void StartAwakeWindow(std::chrono::steady_clock::time_point now);
     void NoteMotion(std::chrono::steady_clock::time_point now);
     bool ShouldSleep(std::chrono::steady_clock::time_point now) const;

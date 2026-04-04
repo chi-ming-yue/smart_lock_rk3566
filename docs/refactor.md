@@ -12,6 +12,7 @@
 ## Current Split
 
 - `app/ctl`: 参数解析和总循环
+- `app/test`: 分层测试入口
 - `core/state`: 状态机
 - `core/run`: 5 秒保持策略
 - `hal/dev`: `/dev/test` 访问

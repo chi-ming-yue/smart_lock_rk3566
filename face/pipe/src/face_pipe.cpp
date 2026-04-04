@@ -97,6 +97,29 @@ RecognitionResult ApplyTemporalSmoothing(const RecognitionResult& raw_result,
     return smoothed;
 }
 
+std::string NormalizeRecMode(const std::string& value)
+{
+    if (value == "i8") {
+        return "i8";
+    }
+    return "fp32";
+}
+
+std::string ResolveModelPath(const FaceCfg& config, const std::string& mode)
+{
+    if (mode == "i8") {
+        if (!config.rec_model_i8_path.empty()) {
+            return config.rec_model_i8_path;
+        }
+        return config.rec_model_path;
+    }
+
+    if (!config.rec_model_fp32_path.empty()) {
+        return config.rec_model_fp32_path;
+    }
+    return config.rec_model_path;
+}
+
 
 bool IsFaceBoxComplete(const FaceBox& box, const cv::Mat& frame)
 {
@@ -453,14 +476,24 @@ struct FacePipe::Impl {
     std::string display_sink_name;
     int frame_index;
     int no_face_frames;
+    int rec_error_count;
+    bool source_active;
+    bool use_camera_source;
+    bool rec_fallback;
     bool display_available;
     bool warned_headless;
+    std::string current_rec_mode;
+    CameraOptions camera_options;
 
     Impl()
         : display_pipeline(NULL),
           display_appsrc(NULL),
           frame_index(0),
           no_face_frames(0),
+          rec_error_count(0),
+          source_active(false),
+          use_camera_source(false),
+          rec_fallback(false),
           display_available(false),
           warned_headless(false) {
     }
@@ -488,35 +521,21 @@ FacePipe::~FacePipe() = default;
 bool FacePipe::Initialize(const FaceCfg& config, std::string* error)
 {
     config_ = config;
+    config_.rec_mode = NormalizeRecMode(config_.rec_mode);
 #ifdef TOTAL_ENABLE_RKNN_FACE_CORE
-    std::string source_error;
-    if (!config.image_path.empty()) {
-        if (!impl_->source.open_image(config.image_path, &source_error)) {
-            if (error != NULL) {
-                *error = source_error;
-            }
-            return false;
-        }
-    } else if (!config.video_path.empty()) {
-        if (!impl_->source.open_video(config.video_path, &source_error)) {
-            if (error != NULL) {
-                *error = source_error;
-            }
-            return false;
-        }
-    } else {
-        CameraOptions camera_options;
-        camera_options.width = config.camera_width;
-        camera_options.height = config.camera_height;
-        camera_options.rotate = config.camera_rotate;
-        camera_options.mirror = config.camera_mirror;
-        if (!impl_->source.open_camera(config.camera_index, camera_options, &source_error)) {
-            if (error != NULL) {
-                *error = source_error;
-            }
-            return false;
-        }
-    }
+    impl_->source.close();
+    impl_->source_active = false;
+    impl_->use_camera_source = config.image_path.empty() && config.video_path.empty();
+    impl_->camera_options.width = config.camera_width;
+    impl_->camera_options.height = config.camera_height;
+    impl_->camera_options.rotate = config.camera_rotate;
+    impl_->camera_options.mirror = config.camera_mirror;
+    impl_->frame_index = 0;
+    impl_->no_face_frames = 0;
+    impl_->rec_error_count = 0;
+    impl_->rec_fallback = false;
+    impl_->current_rec_mode.clear();
+    impl_->recognition_history.clear();
 
     if (!impl_->database.load(config.db_path, error)) {
         return false;
@@ -527,11 +546,68 @@ bool FacePipe::Initialize(const FaceCfg& config, std::string* error)
         }
         return false;
     }
-    if (!impl_->extractor.Init(config.rec_model_path)) {
+
+    const std::string primary_mode = NormalizeRecMode(config_.rec_mode);
+    const std::string primary_model = ResolveModelPath(config_, primary_mode);
+    if (primary_model.empty()) {
         if (error != NULL) {
-            *error = impl_->extractor.last_error();
+            *error = "recognizer model path is empty";
         }
         return false;
+    }
+
+    impl_->extractor.Release();
+    if (!impl_->extractor.Init(primary_model)) {
+        const std::string primary_error = impl_->extractor.last_error();
+        if (primary_mode == "fp32") {
+            const std::string fallback_model = ResolveModelPath(config_, "i8");
+            if (!fallback_model.empty()) {
+                impl_->extractor.Release();
+                if (impl_->extractor.Init(fallback_model)) {
+                    impl_->current_rec_mode = "i8";
+                    impl_->rec_fallback = true;
+                    std::cerr << "[warn] rec fp32 init failed, fallback to i8: "
+                              << primary_error << std::endl;
+                } else {
+                    if (error != NULL) {
+                        *error = impl_->extractor.last_error();
+                    }
+                    return false;
+                }
+            } else {
+                if (error != NULL) {
+                    *error = primary_error;
+                }
+                return false;
+            }
+        } else {
+            if (error != NULL) {
+                *error = primary_error;
+            }
+            return false;
+        }
+    } else {
+        impl_->current_rec_mode = primary_mode;
+    }
+
+    if (!impl_->use_camera_source) {
+        std::string source_error;
+        if (!config.image_path.empty()) {
+            if (!impl_->source.open_image(config.image_path, &source_error)) {
+                if (error != NULL) {
+                    *error = source_error;
+                }
+                return false;
+            }
+        } else if (!config.video_path.empty()) {
+            if (!impl_->source.open_video(config.video_path, &source_error)) {
+                if (error != NULL) {
+                    *error = source_error;
+                }
+                return false;
+            }
+        }
+        impl_->source_active = true;
     }
 
     impl_->recognizer.reset(impl_->database.records(), config.threshold);
@@ -553,6 +629,68 @@ bool FacePipe::IsReady() const
     return initialized_;
 }
 
+bool FacePipe::Activate(std::string* error)
+{
+#ifdef TOTAL_ENABLE_RKNN_FACE_CORE
+    if (!initialized_) {
+        if (error != NULL) {
+            *error = "face pipe is not initialized";
+        }
+        return false;
+    }
+    if (impl_->source_active || !impl_->use_camera_source) {
+        if (error != NULL) {
+            error->clear();
+        }
+        return true;
+    }
+
+    std::string source_error;
+    if (!impl_->source.open_camera(config_.camera_index, impl_->camera_options, &source_error)) {
+        if (error != NULL) {
+            *error = source_error;
+        }
+        return false;
+    }
+    impl_->source_active = true;
+    impl_->frame_index = 0;
+    impl_->no_face_frames = 0;
+    impl_->recognition_history.clear();
+    if (error != NULL) {
+        error->clear();
+    }
+    return true;
+#else
+    (void)error;
+    return initialized_;
+#endif
+}
+
+void FacePipe::Deactivate()
+{
+#ifdef TOTAL_ENABLE_RKNN_FACE_CORE
+    impl_->source.close();
+    StopDisplayPipeline(&impl_->display_pipeline, &impl_->display_appsrc);
+    impl_->source_active = false;
+    impl_->frame_index = 0;
+    impl_->no_face_frames = 0;
+    impl_->rec_error_count = 0;
+    impl_->recognition_history.clear();
+    impl_->display_available = config_.display_preview && config_.image_path.empty();
+    impl_->warned_headless = false;
+    impl_->display_sink_name.clear();
+#endif
+}
+
+bool FacePipe::IsActive() const
+{
+#ifdef TOTAL_ENABLE_RKNN_FACE_CORE
+    return impl_->source_active;
+#else
+    return initialized_;
+#endif
+}
+
 FaceHit FacePipe::PollRecognition()
 {
 #ifdef TOTAL_ENABLE_RKNN_FACE_CORE
@@ -560,7 +698,13 @@ FaceHit FacePipe::PollRecognition()
         FaceHit result;
         result.detected = false;
         result.matched = false;
+        result.rec_fallback = impl_->rec_fallback;
+        result.rec_mode = impl_->current_rec_mode;
         result.similarity = 0.0f;
+
+        if (!impl_->source_active) {
+            return result;
+        }
 
         cv::Mat frame;
         std::string error_message;
@@ -663,9 +807,30 @@ FaceHit FacePipe::PollRecognition()
 
         std::vector<float> feature;
         if (!impl_->extractor.Extract(crop, &feature)) {
-            std::cerr << "[warn] feature extraction failed: " << impl_->extractor.last_error() << std::endl;
+            ++impl_->rec_error_count;
+            std::cerr << "[warn] feature extraction failed: " << impl_->extractor.last_error()
+                      << " mode=" << impl_->current_rec_mode
+                      << " count=" << impl_->rec_error_count << std::endl;
+            if (impl_->current_rec_mode == "fp32" &&
+                impl_->rec_error_count >= std::max(1, config_.rec_error_limit)) {
+                const std::string fallback_model = ResolveModelPath(config_, "i8");
+                if (!fallback_model.empty()) {
+                    impl_->extractor.Release();
+                    if (impl_->extractor.Init(fallback_model)) {
+                        impl_->current_rec_mode = "i8";
+                        impl_->rec_fallback = true;
+                        impl_->rec_error_count = 0;
+                        impl_->recognition_history.clear();
+                        std::cerr << "[warn] rec fallback activated: i8" << std::endl;
+                    } else {
+                        std::cerr << "[warn] rec fallback init failed: "
+                                  << impl_->extractor.last_error() << std::endl;
+                    }
+                }
+            }
             return result;
         }
+        impl_->rec_error_count = 0;
 
         const RecognitionResult raw_result = impl_->recognizer.recognize(feature);
         RecognitionResult recognition = raw_result;
@@ -716,6 +881,8 @@ FaceHit FacePipe::PollRecognition()
 
         result.matched = !recognition.is_unknown;
         result.name = result.matched ? recognition.name : recognition.best_match_name;
+        result.rec_fallback = impl_->rec_fallback;
+        result.rec_mode = impl_->current_rec_mode;
         result.similarity = recognition.similarity;
         return result;
     }
@@ -727,5 +894,7 @@ void FacePipe::SetSimulatedMatch(bool matched, const std::string& name, float si
 {
     simulated_result_.matched = matched;
     simulated_result_.name = name;
+    simulated_result_.rec_fallback = false;
+    simulated_result_.rec_mode = "sim";
     simulated_result_.similarity = similarity;
 }
